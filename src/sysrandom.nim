@@ -23,12 +23,11 @@ when defined(openbsd):
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
     result = arc4random()
 
-  proc getRandomString*(len: static[int]): string {.raises: [OSError].} =
-    ## Create a random string with the given number of btes.
+  proc closeRandom*() = discard
+    ## Close the source of randomness.
     ##
-    ## This uses `getRandomBytes` under the hood and Base 64 encodes the resulting arrays.
-    let buff = getRandomBytes(len)
-    result = encode(buff)
+    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On Windows and other Posix systems, it releases any resources associted with the generation of random numbers.
 elif defined(linux):
   import os
 
@@ -55,17 +54,66 @@ elif defined(linux):
     if syscall(SYS_getrandom, addr result, sizeof(uint32), 0) == -1:
       raiseOsError(osLastError())
 
-  proc getRandomString*(len: static[int]): string {.raises: [OSError].} =
-    ## Create a random string with the given number of btes.
+  proc closeRandom*() = discard
+    ## Close the source of randomness.
     ##
-    ## This uses `getRandomBytes` under the hood and Base 64 encodes the resulting arrays.
-    let buff = getRandomBytes(len)
-    result = encode(buff)
+    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On Windows and other Posix systems, it releases any resources associted with the generation of random numbers.
+elif defined(windows):
+  import dynlib, options
+
+  type
+    RtlGenRandomFunction = (proc(RandomBuffer: pointer, RandomBufferLength: culong): bool)
+
+  var
+    Advapi32Handle: LibHandle
+    RtlGenRandom: Option[RtlGenRandomFunction]
+
+  proc initRtlGenRandom(): RtlGenRandomFunction {.inline.} =
+    ## Initialise the RtlGenRandom function if it is none.
+    if RtlGenRandom.isNone():
+      Advapi32Handle = loadLib("Advapi32.dll")
+      RtlGenRandom = some(cast[RtlGenRandomFunction](checkedSymAddr(Advapi32Handle, "RtlGenRandom")))
+
+    result = RtlGenRandom.get()
+
+  proc getRandomBytes*(len: static[int]): array[len, byte] {.raises: [OSError].} =
+    ## Generate an array of random bytes in the range `0` to `0xff`.
+    let func = initRtlGenRandom()
+    var arr: array[len, byte]
+
+    if not func(addr arr, len):
+      raiseOsError(osLastError())
+
+  proc getRandom*(): uint32 {.raises: [OSError].} =
+    ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
+    let func = initRtlGenRandom()
+
+    if not func(addr result, sizeof(uint32)):
+      raiseOsError(osLastError())
+
+  proc closeRandom*() =
+    ## Close the source of randomness.
+    ##
+    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On Windows and other Posix systems, it releases any resources associted with the generation of random numbers.
+    if RtlGenRandom.isSome():
+      unloadLib(Advapi32Handle)
+      RtlGenRandom = none(RtlGenRandomFunction)
 else:
   {.error: "Unsupported platform".}
 
+proc getRandomString*(len: static[int]): string {.raises: [OSError].} =
+  ## Create a random string with the given number of btes.
+  ##
+  ## This uses `getRandomBytes` under the hood and Base 64 encodes the resulting arrays.
+  let buff = getRandomBytes(len)
+  result = encode(buff)
+
 when isMainModule:
   proc main() =
+    defer: closeRandom()
+
     echo "Generating 5 random unisgned integers:"
 
     for i in 0..4:
