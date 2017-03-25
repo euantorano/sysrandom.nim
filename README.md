@@ -12,6 +12,6 @@ The following sources of randomness are used depending on platform:
 
 - [X] Implement generation of random data on OpenBSD using `arc4random(3)`
 - [X] Implement generation of random data on Linux >= 3.17 (using `getrandom(2)`)
-- [ ] Implement generation of random data on Windows
+- [X] Implement generation of random data on Windows
 - [ ] Implement generation of random data on Linux < 3.17 (kernels without `getrandom(2)`)
 - [ ] Implement generation of random data on other posix systems
