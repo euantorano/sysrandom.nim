@@ -27,7 +27,7 @@ when defined(openbsd):
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associted with the generation of random numbers.
+    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(linux):
   import os
 
@@ -58,24 +58,24 @@ elif defined(linux):
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associted with the generation of random numbers.
+    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(windows):
-  import dynlib, options, os
+  import dynlib, os
 
   type
     RtlGenRandomFunction = (proc(RandomBuffer: pointer, RandomBufferLength: uint64): bool {.cdecl.})
 
   var
     Advapi32Handle: LibHandle
-    RtlGenRandom: Option[RtlGenRandomFunction]
+    RtlGenRandom: RtlGenRandomFunction
 
   proc initRtlGenRandom(): RtlGenRandomFunction {.inline.} =
     ## Initialise the RtlGenRandom function if it is none.
-    if RtlGenRandom.isNone():
+    if RtlGenRandom.isNil():
       Advapi32Handle = loadLib("Advapi32.dll")
-      RtlGenRandom = some(cast[RtlGenRandomFunction](checkedSymAddr(Advapi32Handle, "SystemFunction036")))
+      RtlGenRandom = cast[RtlGenRandomFunction](checkedSymAddr(Advapi32Handle, "SystemFunction036"))
 
-    result = RtlGenRandom.get()
+    result = RtlGenRandom
 
   proc getRandomBytes*(len: static[int]): array[len, byte] =
     ## Generate an array of random bytes in the range `0` to `0xff`.
@@ -95,10 +95,10 @@ elif defined(windows):
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associted with the generation of random numbers.
-    if RtlGenRandom.isSome():
+    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
+    if not RtlGenRandom.isNil():
       unloadLib(Advapi32Handle)
-      RtlGenRandom = none(RtlGenRandomFunction)
+      RtlGenRandom = nil
 else:
   {.error: "Unsupported platform".}
 
