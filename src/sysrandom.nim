@@ -99,6 +99,40 @@ elif defined(windows):
     if not RtlGenRandom.isNil():
       unloadLib(Advapi32Handle)
       RtlGenRandom = nil
+elif defined(posix):
+  var urandomFile: File
+
+  proc initUrandom(): File {.inline.} =
+    ## Initialise the urandomFile if it isn't opened
+    if urandomFile.isNil():
+      urandomFile = open("/dev/urandom")
+
+    result = urandomFile
+
+  proc getRandomBytes*(len: static[int]): array[len, byte] =
+    ## Generate an array of random bytes in the range `0` to `0xff`.
+    let f = initUrandom()
+    var
+      totalRead: int = 0
+      numRead: int
+
+    while totalRead < len:
+      numRead = f.readBuffer(addr result[totalRead], len - totalRead)
+      inc(totalRead, numRead)
+
+  proc getRandom*(): uint32 =
+    ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
+    let f = initUrandom()
+    discard f.readBuffer(addr result, sizeof(uint32))
+
+  proc closeRandom*() =
+    ## Close the source of randomness.
+    ##
+    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
+    if not urandomFile.isNil():
+      close(urandomFile)
+      urandomFile = nil
 else:
   {.error: "Unsupported platform".}
 
