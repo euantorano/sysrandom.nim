@@ -1,7 +1,12 @@
 nimcache
+
 tests/*
 !tests/*.nim
 !tests/nim.cfg
+
+src/*
+!src/*.nim
+
 nimsuggest.log
 
 .vscode

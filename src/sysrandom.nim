@@ -100,14 +100,37 @@ elif defined(windows):
       unloadLib(Advapi32Handle)
       RtlGenRandom = nil
 elif defined(posix):
-  var urandomFile: File
+  import posix, os
 
-  proc initUrandom(): File {.inline.} =
+  var
+    isUrandomFileOpen: bool = false
+    urandomFileHandle: cint
+    S_IFMT {.importc: "S_IFMT", header: "<sys/stat.h>".}: int
+    S_IFCHR {.importc: "S_IFCHR", header: "<sys/stat.h>".}: int
+
+  proc checkIsCharacterDevice(statBuffer: Stat): bool =
+    result = (int(statBuffer.st_mode) and S_IFMT) == S_IFCHR
+
+  proc initUrandom(): cint {.inline.} =
     ## Initialise the urandomFile if it isn't opened
-    if urandomFile.isNil():
-      urandomFile = open("/dev/urandom")
+    if not isUrandomFileOpen:
+      urandomFileHandle = posix.open("/dev/urandom", O_RDONLY)
+      if urandomFileHandle == -1:
+        raiseOsError(osLastError())
+      isUrandomFileOpen = true
 
-    result = urandomFile
+      var statBuffer: Stat
+      if fstat(urandomFileHandle, statBuffer) == -1:
+        isUrandomFileOpen = false
+        discard posix.close(urandomFileHandle)
+        raiseOsError(osLastError())
+
+      if not checkIsCharacterDevice(statBuffer):
+        isUrandomFileOpen = false
+        discard posix.close(urandomFileHandle)
+        raise newException(OSError, "/dev/urandom is not a valid character device")
+
+    result = urandomFileHandle
 
   proc getRandomBytes*(len: static[int]): array[len, byte] =
     ## Generate an array of random bytes in the range `0` to `0xff`.
@@ -117,22 +140,22 @@ elif defined(posix):
       numRead: int
 
     while totalRead < len:
-      numRead = f.readBuffer(addr result[totalRead], len - totalRead)
+      numRead = posix.read(f, addr result[totalRead], len - totalRead)
       inc(totalRead, numRead)
 
   proc getRandom*(): uint32 =
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
     let f = initUrandom()
-    discard f.readBuffer(addr result, sizeof(uint32))
+    discard posix.read(f, addr result, sizeof(uint32))
 
   proc closeRandom*() =
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
     ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
-    if not urandomFile.isNil():
-      close(urandomFile)
-      urandomFile = nil
+    if isUrandomFileOpen:
+      isUrandomFileOpen = false
+      discard posix.close(urandomFileHandle)
 else:
   {.error: "Unsupported platform".}
 
