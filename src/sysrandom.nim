@@ -119,6 +119,17 @@ elif defined(posix):
         raiseOsError(osLastError())
       isUrandomFileOpen = true
 
+      let existingFcntl = fcntl(urandomFileHandle, F_GETFD)
+      if existingFcntl == -1:
+        isUrandomFileOpen = false
+        discard posix.close(urandomFileHandle)
+        raiseOsError(osLastError())
+
+      if fcntl(urandomFileHandle, F_SETFD, existingFcntl or FD_CLOEXEC) == -1:
+        isUrandomFileOpen = false
+        discard posix.close(urandomFileHandle)
+        raiseOsError(osLastError())
+
       var statBuffer: Stat
       if fstat(urandomFileHandle, statBuffer) == -1:
         isUrandomFileOpen = false
