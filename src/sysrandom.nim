@@ -88,8 +88,7 @@ elif defined(posix):
       SYS_getrandom {.importc: "SYS_getrandom", header: "<syscall.h>".}: clong
       GRND_NONBLOCK {.importc: "GRND_NONBLOCK", header: "<linux/random.h>".}: cint
 
-  when defined(linux):
-    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}
+    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}    
 
   proc checkIsCharacterDevice(statBuffer: Stat): bool =
     ## Check if a device is a character device using the structure initialised by `fstat`.
