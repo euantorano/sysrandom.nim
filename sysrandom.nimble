@@ -5,7 +5,7 @@ author        = "Euan T"
 description   = "A simple library to create random strings of data."
 license       = "BSD3"
 
-srcDir = @["src"]
+srcDir = "src"
 
 # Dependencies
 
