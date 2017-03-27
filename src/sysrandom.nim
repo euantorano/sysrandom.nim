@@ -28,37 +28,6 @@ when defined(openbsd):
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
     ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
-elif defined(linux):
-  import os
-
-  proc syscall(number: clong, buf: pointer, buflen: csize, flags: uint32): clong {.importc: "syscall", header: "<unistd.h>".}
-
-  var SYS_getrandom {.importc: "SYS_getrandom", header: "<syscall.h>".}: clong
-
-  proc getRandomBytes*(len: static[int]): array[len, byte] =
-    ## Generate an array of random bytes in the range `0` to `0xff`.
-    var
-      totalRead: int = 0
-      ret: int
-
-    while totalRead < len:
-      ret = syscall(SYS_getrandom, addr result[totalRead], len - totalRead, 0)
-
-      if ret == -1:
-        raiseOsError(osLastError())
-
-      inc(totalRead, ret)
-
-  proc getRandom*(): uint32 =
-    ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
-    if syscall(SYS_getrandom, addr result, sizeof(uint32), 0) == -1:
-      raiseOsError(osLastError())
-
-  proc closeRandom*() = discard
-    ## Close the source of randomness.
-    ##
-    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(windows):
   import dynlib, os
 
@@ -102,71 +71,143 @@ elif defined(windows):
 elif defined(posix):
   import posix, os
 
+  type
+    RandomSource = object
+      when defined(linux):
+        isGetRandomAvailable: bool
+      urandomHandle: cint
+
   var
-    isUrandomFileOpen: bool = false
-    urandomFileHandle: cint
-    S_IFMT {.importc: "S_IFMT", header: "<sys/stat.h>".}: int
-    S_IFCHR {.importc: "S_IFCHR", header: "<sys/stat.h>".}: int
+    isRandomSourceInitialised: bool = false
+    randomSource: RandomSource
+    S_IFMT {.importc: "S_IFMT", header: "<sys/stat.h>".}: cint
+    S_IFCHR {.importc: "S_IFCHR", header: "<sys/stat.h>".}: cint
+
+  when defined(linux):
+    var
+      SYS_getrandom {.importc: "SYS_getrandom", header: "<syscall.h>".}: clong
+      GRND_NONBLOCK {.importc: "GRND_NONBLOCK", header: "<linux/random.h>".}: cint
+
+  when defined(linux):
+    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}
 
   proc checkIsCharacterDevice(statBuffer: Stat): bool =
+    ## Check if a device is a character device using the structure initialised by `fstat`.
     result = (int(statBuffer.st_mode) and S_IFMT) == S_IFCHR
 
-  proc initUrandom(): cint {.inline.} =
-    ## Initialise the urandomFile if it isn't opened
-    if not isUrandomFileOpen:
-      urandomFileHandle = posix.open("/dev/urandom", O_RDONLY)
-      if urandomFileHandle == -1:
-        raiseOsError(osLastError())
-      isUrandomFileOpen = true
+  proc openDevUrandom(): cint =
+    ## Open the /dev/urandom file, making sure it is a character device.
+    result = posix.open("/dev/urandom", O_RDONLY)
+    if result == -1:
+      isRandomSourceInitialised = false
+      raiseOsError(osLastError())
 
-      let existingFcntl = fcntl(urandomFileHandle, F_GETFD)
-      if existingFcntl == -1:
-        isUrandomFileOpen = false
-        discard posix.close(urandomFileHandle)
-        raiseOsError(osLastError())
+    let existingFcntl = fcntl(result, F_GETFD)
+    if existingFcntl == -1:
+      isRandomSourceInitialised = false
+      discard posix.close(result)
+      raiseOsError(osLastError())
 
-      if fcntl(urandomFileHandle, F_SETFD, existingFcntl or FD_CLOEXEC) == -1:
-        isUrandomFileOpen = false
-        discard posix.close(urandomFileHandle)
-        raiseOsError(osLastError())
+    if fcntl(result, F_SETFD, existingFcntl or FD_CLOEXEC) == -1:
+      isRandomSourceInitialised = false
+      discard posix.close(result)
+      raiseOsError(osLastError())
 
-      var statBuffer: Stat
-      if fstat(urandomFileHandle, statBuffer) == -1:
-        isUrandomFileOpen = false
-        discard posix.close(urandomFileHandle)
-        raiseOsError(osLastError())
+    var statBuffer: Stat
+    if fstat(result, statBuffer) == -1:
+      isRandomSourceInitialised = false
+      discard posix.close(result)
+      raiseOsError(osLastError())
 
-      if not checkIsCharacterDevice(statBuffer):
-        isUrandomFileOpen = false
-        discard posix.close(urandomFileHandle)
-        raise newException(OSError, "/dev/urandom is not a valid character device")
+    if not checkIsCharacterDevice(statBuffer):
+      isRandomSourceInitialised = false
+      discard posix.close(result)
+      raise newException(OSError, "/dev/urandom is not a valid character device")
 
-    result = urandomFileHandle
+  proc initRandomSource(): RandomSource =
+    # Initialise the source of randomness.
+    when defined(linux):
+      result = RandomSource(isGetRandomAvailable: true)
+
+      var data: uint8 = 0'u8
+      if syscall(SYS_getrandom, addr data, 1, GRND_NONBLOCK) == -1:
+        let error = int32(osLastError())
+        if error in {ENOSYS, EPERM}:
+          # The getrandom syscall is not available, so open the /dev/urandom file
+          result.isGetRandomAvailable = false
+          result.urandomHandle = openDevUrandom()
+        else:
+          raiseOsError(osLastError())
+    else:
+      result = RandomSource(urandomHandle: openDevUrandom())
+
+  proc getRandomSource(): RandomSource =
+    ## Get the random source to use in order to get random data.
+    if not isRandomSourceInitialised:
+      randomSource = initRandomSource()
+      isRandomSourceInitialised = true
+
+    result = randomSource
 
   proc getRandomBytes*(len: static[int]): array[len, byte] =
     ## Generate an array of random bytes in the range `0` to `0xff`.
-    let f = initUrandom()
+    let source = getRandomSource()
+
     var
+      data: array[len, byte]
       totalRead: int = 0
       numRead: int
 
+    when defined(linux):
+      if source.isGetRandomAvailable:
+        ## Using a fairly recent Linux kernel with the `getrandom` syscall, so use that.
+        while totalRead < len:
+          numRead = syscall(SYS_getrandom, addr data[totalRead], len - totalRead, GRND_NONBLOCK)
+          if numRead == -1:
+            raiseOsError(osLastError())
+
+          inc(totalRead, numRead)
+
+        return data
+
     while totalRead < len:
-      numRead = posix.read(f, addr result[totalRead], len - totalRead)
+      numRead = posix.read(source.urandomHandle, addr data[totalRead], len - totalRead)
+      if numRead == -1:
+        raiseOsError(osLastError())
+        
       inc(totalRead, numRead)
+
+    return data
 
   proc getRandom*(): uint32 =
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
-    let f = initUrandom()
-    discard posix.read(f, addr result, sizeof(uint32))
+    let source = getRandomSource()
+
+    var data: uint32
+    when defined(linux):
+      if source.isGetRandomAvailable:
+        if syscall(SYS_getrandom, addr data, sizeof(uint32), GRND_NONBLOCK) == -1:
+          raiseOsError(osLastError())
+
+        return data
+
+    if posix.read(source.urandomHandle, addr data, sizeof(uint32)) == -1:
+      raiseOsError(osLastError())
+
+    return data
 
   proc closeRandom*() =
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
     ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
-    if isUrandomFileOpen:
-      isUrandomFileOpen = false
-      discard posix.close(urandomFileHandle)
+    if isRandomSourceInitialised:
+      isRandomSourceInitialised = false
+      when defined(linux):
+        if not randomSource.isGetRandomAvailable:
+          discard posix.close(randomSource.urandomHandle)
+      else:
+        discard posix.close(randomSource.urandomHandle)
 else:
   {.error: "Unsupported platform".}
 
@@ -186,11 +227,8 @@ when isMainModule:
     for i in 0..4:
       echo "Random int: ", getRandom()
 
-    echo "\nGenerating 5 random bytes:"
     let randomBytes = getRandomBytes(5)
-
-    for i in low(randomBytes)..high(randomBytes):
-      echo "Random byte: ", randomBytes[i]
+    echo "\nGenerating 5 random bytes: ", repr(randomBytes)
 
     echo "\nGenerating 5 random 256 bit strings:"
 

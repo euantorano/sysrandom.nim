@@ -8,10 +8,29 @@ The following sources of randomness are used depending on platform:
 - On recent (>=3.17) versions of the Linux kernel, [`getrandom(2)`](http://man7.org/linux/man-pages/man2/getrandom.2.html) is used.
 - On all other posix systems, `/dev/urandmon` is used.
 
-## TODO
+## Installation
 
-- [X] Implement generation of random data on OpenBSD using `arc4random(3)`
-- [X] Implement generation of random data on Linux >= 3.17 (using `getrandom(2)`)
-- [X] Implement generation of random data on Windows
-- [ ] Implement generation of random data on Linux < 3.17 (kernels without `getrandom(2)`)
-- [ ] Implement generation of random data on other posix systems
+```
+nimble install sysrandom
+```
+
+## Usage
+
+```nim
+import sysrandom
+
+## Make sure to close the `/dev/urandom` file on posix or close the DLL handle on Windows after you're finished generating random data
+defer: closeRandom()
+
+## Create an array of 10 random bytes (`array[10, byte]`)
+let randomBytes = getRandomBytes(10)
+echo "Generating 10 random bytes: ", repr(randomBytes)
+
+## Get a random unsigned 32 bit integer (`uint32`) in the range 0..0xffffffff
+let randomUint32 = getRandom()
+echo "Random integer: ", randomUint32
+
+## Generate a random string based upon a 32 byte array of random values, base 64 encoded
+let randomString = getRandomString(32)
+echo "Random string: ", randomString
+```
