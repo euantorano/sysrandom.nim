@@ -11,8 +11,6 @@ import base64
 when defined(openbsd):
   proc arc4random(): uint32 {.importc: "arc4random", header: "<stdlib.h>".}
 
-  proc arc4random_uniform(upperBound: uint32): uint32 {.importc: "arc4random_uniform", header: "<stdlib.h>".}
-
   proc arc4random_buf(buf: pointer, nbytes: csize) {.importc: "arc4random_buf", header: "<stdlib.h>".}
 
   proc getRandomBytes*(len: static[int]): array[len, byte] =
@@ -27,47 +25,27 @@ when defined(openbsd):
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
+    ## On other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(windows):
-  import dynlib, os
+  import os
 
-  type
-    RtlGenRandomFunction = (proc(RandomBuffer: pointer, RandomBufferLength: uint64): bool {.cdecl.})
-
-  var
-    Advapi32Handle: LibHandle
-    RtlGenRandom: RtlGenRandomFunction
-
-  proc initRtlGenRandom(): RtlGenRandomFunction {.inline.} =
-    ## Initialise the RtlGenRandom function if it is none.
-    if RtlGenRandom.isNil():
-      Advapi32Handle = loadLib("Advapi32.dll")
-      RtlGenRandom = cast[RtlGenRandomFunction](checkedSymAddr(Advapi32Handle, "SystemFunction036"))
-
-    result = RtlGenRandom
+  proc RtlGenRandom(RandomBuffer: pointer, RandomBufferLength: uint64): bool {.cdecl, dynlib: "Advapi32.dll", importc: "SystemFunction036".}
 
   proc getRandomBytes*(len: static[int]): array[len, byte] =
     ## Generate an array of random bytes in the range `0` to `0xff`.
-    let genRandom = initRtlGenRandom()
-
-    if not genRandom(addr result[0], uint64(len)):
+    if not RtlGenRandom(addr result[0], uint64(len)):
       raiseOsError(osLastError())
 
   proc getRandom*(): uint32 =
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
-    let genRandom = initRtlGenRandom()
-
-    if not genRandom(addr result, uint64(sizeof(uint32))):
+    if not RtlGenRandom(addr result, uint64(sizeof(uint32))):
       raiseOsError(osLastError())
 
-  proc closeRandom*() =
+  proc closeRandom*() = discard
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
-    if not RtlGenRandom.isNil():
-      unloadLib(Advapi32Handle)
-      RtlGenRandom = nil
+    ## On other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(posix):
   import posix, os
 
@@ -199,7 +177,7 @@ elif defined(posix):
     ## Close the source of randomness.
     ##
     ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
-    ## On Windows and other Posix systems, it releases any resources associated with the generation of random numbers.
+    ## On other Posix systems, it releases any resources associated with the generation of random numbers.
     if isRandomSourceInitialised:
       isRandomSourceInitialised = false
       when defined(linux):
@@ -209,6 +187,11 @@ elif defined(posix):
         discard posix.close(randomSource.urandomHandle)
 else:
   {.error: "Unsupported platform".}
+
+proc getRandomNumber*[T: SomeNumber](): T =
+  ## Get a random number of any type.
+  let bytes = getRandomBytes(sizeof(T))
+  result = cast[T](bytes)
 
 proc getRandomString*(len: static[int]): string =
   ## Create a random string with the given number of btes.
@@ -224,7 +207,18 @@ when isMainModule:
     echo "Generating 5 random unisgned integers:"
 
     for i in 0..4:
-      echo "Random int: ", getRandom()
+      echo "Random unsigned int: ", getRandom()
+
+    echo "\nTrying the generic getRandomNumber:"
+
+    let randomInt32: int32 = getRandomNumber[int32]()
+    echo "Random 32 bit integer: ", randomInt32
+
+    let randomInt64: int64 = getRandomNumber[int64]()
+    echo "Random 64 bit integer: ", randomInt64
+
+    let randomUint64: uint64 = getRandomNumber[uint64]()
+    echo "Random 64 bit unsigned integer: ", randomUint64
 
     let randomBytes = getRandomBytes(5)
     echo "\nGenerating 5 random bytes: ", repr(randomBytes)

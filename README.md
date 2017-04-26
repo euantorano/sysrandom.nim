@@ -14,6 +14,8 @@ The following sources of randomness are used depending on platform:
 nimble install sysrandom
 ```
 
+## [API Documentation](https://htmlpreview.github.io/?https://github.com/euantorano/sysrandom.nim/blob/master/docs/sysrandom.html)
+
 ## Usage
 
 ```nim

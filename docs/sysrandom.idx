@@ -1,0 +1,5 @@
+getRandomBytes	sysrandom.html#getRandomBytes,	sysrandom : getRandomBytes*(len: static[int]): array[len, byte]	
+getRandom	sysrandom.html#getRandom,	sysrandom : getRandom*(): uint32	
+closeRandom	sysrandom.html#closeRandom,	sysrandom : closeRandom*()	
+getRandomNumber	sysrandom.html#getRandomNumber,	sysrandom : getRandomNumber*[T: SomeNumber](): T	
+getRandomString	sysrandom.html#getRandomString,	sysrandom : getRandomString*(len: static[int]): string	
