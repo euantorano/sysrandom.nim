@@ -64,9 +64,35 @@ elif defined(posix):
   when defined(linux):
     var
       SYS_getrandom {.importc: "SYS_getrandom", header: "<syscall.h>".}: clong
-      GRND_NONBLOCK {.importc: "GRND_NONBLOCK", header: "<linux/random.h>".}: cint
 
-    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}    
+    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}   
+    
+    proc safeSyscall(buffer: pointer, size: int) =
+      var
+        readNumberBytes: int
+        mutBuf: pointer = buffer
+        mutSize = size
+        lastError: OSErrorCode
+
+      while mutSize > 0:
+        readNumberBytes = syscall(SYS_getrandom, mutBuf, mutSize, 0)
+        lastError = osLastError()
+        while readNumberBytes < 0 and (lastError == OSErrorCode(EINTR) or lastError == OSErrorCode(EAGAIN)):
+          readNumberBytes = syscall(SYS_getrandom, mutBuf, mutSize, 0)
+          lastError = osLastError()
+
+        if readNumberBytes < 0:
+          raiseOsError(osLastError())
+
+        if readNumberBytes == 0:
+          break
+
+        dec(mutSize, readNumberBytes)
+
+        if mutSize == 0:
+          break
+
+        mutBuf = cast[pointer](cast[int](mutBuf) + readNumberBytes)
 
   proc checkIsCharacterDevice(statBuffer: Stat): bool =
     ## Check if a device is a character device using the structure initialised by `fstat`.
@@ -107,7 +133,7 @@ elif defined(posix):
       result = RandomSource(isGetRandomAvailable: true)
 
       var data: uint8 = 0'u8
-      if syscall(SYS_getrandom, addr data, 1, GRND_NONBLOCK) == -1:
+      if syscall(SYS_getrandom, addr data, 1, 0) == -1:
         let error = int32(osLastError())
         if error in {ENOSYS, EPERM}:
           # The getrandom syscall is not available, so open the /dev/urandom file
@@ -126,52 +152,56 @@ elif defined(posix):
 
     result = randomSource
 
+  proc safeRead(fileHandle: cint, buffer: pointer, size: int) =
+    var
+      readNumberBytes: int
+      mutBuf: pointer = buffer
+      mutSize = size
+      lastError: OSErrorCode
+
+    while mutSize > 0:
+      readNumberBytes = posix.read(fileHandle, mutBuf, mutSize)
+      lastError = osLastError()
+      while readNumberBytes < 0 and (lastError == OSErrorCode(EINTR) or lastError == OSErrorCode(EAGAIN)):
+        readNumberBytes = posix.read(fileHandle, mutBuf, mutSize)
+        lastError = osLastError()
+
+      if readNumberBytes < 0:
+        raiseOsError(osLastError())
+
+      if readNumberBytes == 0:
+        break
+
+      dec(mutSize, readNumberBytes)
+
+      if mutSize == 0:
+        break
+
+      mutBuf = cast[pointer](cast[int](mutBuf) + readNumberBytes)
+
   proc getRandomBytes*(len: static[int]): array[len, byte] =
     ## Generate an array of random bytes in the range `0` to `0xff`.
     let source = getRandomSource()
 
-    var
-      data: array[len, byte]
-      totalRead: int = 0
-      numRead: int
-
     when defined(linux):
       if source.isGetRandomAvailable:
         ## Using a fairly recent Linux kernel with the `getrandom` syscall, so use that.
-        while totalRead < len:
-          numRead = syscall(SYS_getrandom, addr data[totalRead], len - totalRead, GRND_NONBLOCK)
-          if numRead == -1:
-            raiseOsError(osLastError())
+        safeSyscall(addr result, len)
+        return result
 
-          inc(totalRead, numRead)
-
-        return data
-
-    while totalRead < len:
-      numRead = posix.read(source.urandomHandle, addr data[totalRead], len - totalRead)
-      if numRead == -1:
-        raiseOsError(osLastError())
-        
-      inc(totalRead, numRead)
-
-    return data
+    safeRead(source.urandomHandle, addr result[0], len)
 
   proc getRandom*(): uint32 =
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
     let source = getRandomSource()
 
-    var data: uint32
     when defined(linux):
       if source.isGetRandomAvailable:
-        if syscall(SYS_getrandom, addr data, sizeof(uint32), GRND_NONBLOCK) == -1:
-          raiseOsError(osLastError())
+        ## Using a fairly recent Linux kernel with the `getrandom` syscall, so use that.
+        safeSyscall(addr result, sizeof(uint32))
+        return result
 
-        return data
-
-    if posix.read(source.urandomHandle, addr data, sizeof(uint32)) == -1:
-      raiseOsError(osLastError())
-
-    return data
+    safeRead(source.urandomHandle, addr result, sizeof(uint32))
 
   proc closeRandom*() =
     ## Close the source of randomness.
@@ -219,6 +249,9 @@ when isMainModule:
 
     let randomUint64: uint64 = getRandomNumber[uint64]()
     echo "Random 64 bit unsigned integer: ", randomUint64
+
+    let randomUint8: uint8 = getRandomNumber[uint8]()
+    echo "Random 8 bit unsigned integer: ", randomUint8
 
     let randomBytes = getRandomBytes(5)
     echo "\nGenerating 5 random bytes: ", repr(randomBytes)
