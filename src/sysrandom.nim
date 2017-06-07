@@ -13,9 +13,9 @@ when defined(openbsd):
 
   proc arc4random_buf(buf: pointer, nbytes: csize) {.importc: "arc4random_buf", header: "<stdlib.h>".}
 
-  proc getRandomBytes*(len: static[int]): array[len, byte] =
-    ## Generate an array of random bytes in the range `0` to `0xff`.
-    arc4random_buf(addr result[0], len)
+  proc getRandomBytes*(buf: pointer, len: int) =
+    ## Fill a buffer `buff` with `len` random bytes.
+    arc4random_buf(buf, len)
 
   proc getRandom*(): uint32 =
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
@@ -24,16 +24,16 @@ when defined(openbsd):
   proc closeRandom*() = discard
     ## Close the source of randomness.
     ##
-    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On systems such as OpenBSD, Windows and Linux (using `getrandom()`), this does nothing.
     ## On other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(windows):
   import os
 
   proc RtlGenRandom(RandomBuffer: pointer, RandomBufferLength: uint64): bool {.cdecl, dynlib: "Advapi32.dll", importc: "SystemFunction036".}
 
-  proc getRandomBytes*(len: static[int]): array[len, byte] =
-    ## Generate an array of random bytes in the range `0` to `0xff`.
-    if not RtlGenRandom(addr result[0], uint64(len)):
+  proc getRandomBytes*(buf: pointer, len: int) =
+    ## Fill a buffer `buff` with `len` random bytes.
+    if not RtlGenRandom(buf, uint64(len)):
       raiseOsError(osLastError())
 
   proc getRandom*(): uint32 =
@@ -44,7 +44,7 @@ elif defined(windows):
   proc closeRandom*() = discard
     ## Close the source of randomness.
     ##
-    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On systems such as OpenBSD, Windows and Linux (using `getrandom()`), this does nothing.
     ## On other Posix systems, it releases any resources associated with the generation of random numbers.
 elif defined(posix):
   import posix, os
@@ -65,8 +65,8 @@ elif defined(posix):
     var
       SYS_getrandom {.importc: "SYS_getrandom", header: "<syscall.h>".}: clong
 
-    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}   
-    
+    proc syscall(number: clong, buf: pointer, buflen: csize, flags: cint): clong {.importc: "syscall", header: "<unistd.h>".}
+
     proc safeSyscall(buffer: pointer, size: int) =
       var
         readNumberBytes: int
@@ -179,17 +179,17 @@ elif defined(posix):
 
       mutBuf = cast[pointer](cast[int](mutBuf) + readNumberBytes)
 
-  proc getRandomBytes*(len: static[int]): array[len, byte] =
-    ## Generate an array of random bytes in the range `0` to `0xff`.
+  proc getRandomBytes*(buf: pointer, len: int) =
+    ## Fill a buffer `buff` with `len` random bytes.
     let source = getRandomSource()
 
     when defined(linux):
       if source.isGetRandomAvailable:
         ## Using a fairly recent Linux kernel with the `getrandom` syscall, so use that.
-        safeSyscall(addr result, len)
-        return result
+        safeSyscall(buf, len)
+        return
 
-    safeRead(source.urandomHandle, addr result[0], len)
+    safeRead(source.urandomHandle, buf, len)
 
   proc getRandom*(): uint32 =
     ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
@@ -206,7 +206,7 @@ elif defined(posix):
   proc closeRandom*() =
     ## Close the source of randomness.
     ##
-    ## On systems such as OpenBSD and Linux (using `getrandom()`), this does nothing.
+    ## On systems such as OpenBSD, Windows and Linux (using `getrandom()`), this does nothing.
     ## On other Posix systems, it releases any resources associated with the generation of random numbers.
     if isRandomSourceInitialised:
       isRandomSourceInitialised = false
@@ -218,16 +218,23 @@ elif defined(posix):
 else:
   {.error: "Unsupported platform".}
 
-proc getRandomNumber*[T: SomeNumber](): T =
-  ## Get a random number of any type.
-  let bytes = getRandomBytes(sizeof(T))
-  result = cast[T](bytes)
+proc getRandomBytes*(len: static[int]) : array[len, byte] =
+  ## Generate an array of random bytes in the range 0 to 0xff of length `len`.
+  getRandomBytes(addr result[0], len)
 
 proc getRandomString*(len: static[int]): string =
-  ## Create a random string with the given number of btes.
+  ## Create a random string with the given number of bytes.
   ##
-  ## This uses `getRandomBytes` under the hood and Base 64 encodes the resulting arrays.
+  ## This will create an array of characters of the given `len` length, fill that using `getRandomBytes` then Base 64 encode the result.
   let buff = getRandomBytes(len)
+  result = encode(buff)
+
+proc getRandomString*(len: int): string =
+  ## Create a random string with the given number of bytes.
+  ##
+  ## This will allocate a sequence of characters of the given `len` length, fill that using `getRandomBytes` then Base 64 encode the result.
+  var buff = newSeq[char](len)
+  getRandomBytes(addr buff[0], len)
   result = encode(buff)
 
 when isMainModule:
@@ -239,26 +246,20 @@ when isMainModule:
     for i in 0..4:
       echo "Random unsigned int: ", getRandom()
 
-    echo "\nTrying the generic getRandomNumber:"
+    var buffer = newSeq[byte](20)
+    getRandomBytes(addr buffer[0], len(buffer))
 
-    let randomInt32: int32 = getRandomNumber[int32]()
-    echo "Random 32 bit integer: ", randomInt32
-
-    let randomInt64: int64 = getRandomNumber[int64]()
-    echo "Random 64 bit integer: ", randomInt64
-
-    let randomUint64: uint64 = getRandomNumber[uint64]()
-    echo "Random 64 bit unsigned integer: ", randomUint64
-
-    let randomUint8: uint8 = getRandomNumber[uint8]()
-    echo "Random 8 bit unsigned integer: ", randomUint8
+    echo "\nFilled buffer with 20 random bytes: ", buffer
 
     let randomBytes = getRandomBytes(5)
     echo "\nGenerating 5 random bytes: ", repr(randomBytes)
 
-    echo "\nGenerating 5 random 256 bit strings:"
+    echo "Generating 5 random 256 bit strings:"
 
     for i in 0..4:
       echo "Random string: ", getRandomString(32)
+
+    let length = 32
+    echo "\nRandom string with run time length: ", getRandomString(length)
 
   main()

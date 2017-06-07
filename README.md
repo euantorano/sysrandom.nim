@@ -24,6 +24,10 @@ import sysrandom
 ## Make sure to close the `/dev/urandom` file on posix or close the DLL handle on Windows after you're finished generating random data
 defer: closeRandom()
 
+## Fill a buffer with x random bytes
+var buffer = newSeq[byte](20)
+getRandomBytes(addr buffer[0], len(buffer))
+
 ## Create an array of 10 random bytes (`array[10, byte]`)
 let randomBytes = getRandomBytes(10)
 echo "Generating 10 random bytes: ", repr(randomBytes)
