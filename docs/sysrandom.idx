@@ -1,6 +1,8 @@
-getRandomBytes	sysrandom.html#getRandomBytes,pointer,int	sysrandom : getRandomBytes*(buf: pointer; len: int)	
-getRandom	sysrandom.html#getRandom,	sysrandom : getRandom*(): uint32	
-closeRandom	sysrandom.html#closeRandom,	sysrandom : closeRandom*()	
-getRandomBytes	sysrandom.html#getRandomBytes,	sysrandom : getRandomBytes*(len: static[int]): array[len, byte]	
-getRandomString	sysrandom.html#getRandomString,	sysrandom : getRandomString*(len: static[int]): string	
-getRandomString	sysrandom.html#getRandomString,int	sysrandom : getRandomString*(len: int): string	
+getRandomBytes	sysrandom.html#getRandomBytes,pointer,int	sysrandom : getRandomBytes(buf: pointer; len: int)	
+getRandom	sysrandom.html#getRandom,	sysrandom : getRandom(): uint32	
+closeRandom	sysrandom.html#closeRandom,	sysrandom : closeRandom()	
+getRandomBytes	sysrandom.html#getRandomBytes,	sysrandom : getRandomBytes(len: static[int]): array[len, byte]	
+getRandomBytes	sysrandom.html#getRandomBytes,int	sysrandom : getRandomBytes(len: int): seq[byte]	
+getRandomString	sysrandom.html#getRandomString,	sysrandom : getRandomString(len: static[int]): string	
+getRandomString	sysrandom.html#getRandomString,int	sysrandom : getRandomString(len: int): string	
+getRandom	sysrandom.html#getRandom,uint32	sysrandom : getRandom(upperBound: uint32): uint32	

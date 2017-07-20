@@ -13,13 +13,23 @@ when defined(openbsd):
 
   proc arc4random_buf(buf: pointer, nbytes: csize) {.importc: "arc4random_buf", header: "<stdlib.h>".}
 
+  proc arc4random_uniform(upperBound: uint32): uint32 {.importc: "arc4random_uniform", header: "<stdlib.h>".}
+
   proc getRandomBytes*(buf: pointer, len: int) =
     ## Fill a buffer `buff` with `len` random bytes.
     arc4random_buf(buf, len)
 
   proc getRandom*(): uint32 =
-    ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
+    ## Generate a random value in the range `0` to `0xffffffff`.
     result = arc4random()
+
+  proc getRandom*(upperBound: uint32): uint32 =
+    ## Generate a random value in the range `0` to `upperBound`.
+    ##
+    ## The implementation on most platforms is derived from here: http://www.azillionmonkeys.com/qed/random.html
+    ##
+    ## On OpenBSD this simply calls `arc4random_uniform`.
+    result = arc4random_uniform(upperBound)
 
   proc closeRandom*() = discard
     ## Close the source of randomness.
@@ -37,7 +47,7 @@ elif defined(windows):
       raiseOsError(osLastError())
 
   proc getRandom*(): uint32 =
-    ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
+    ## Generate a random value in the range `0` to `0xffffffff`.
     if not RtlGenRandom(addr result, uint64(sizeof(uint32))):
       raiseOsError(osLastError())
 
@@ -192,7 +202,7 @@ elif defined(posix):
     safeRead(source.urandomHandle, buf, len)
 
   proc getRandom*(): uint32 =
-    ## Generate an unpredictable random value in the range `0` to `0xffffffff`.
+    ## Generate a random value in the range `0` to `0xffffffff`.
     let source = getRandomSource()
 
     when defined(linux):
@@ -218,8 +228,13 @@ elif defined(posix):
 else:
   {.error: "Unsupported platform".}
 
-proc getRandomBytes*(len: static[int]) : array[len, byte] =
+proc getRandomBytes*(len: static[int]): array[len, byte] =
   ## Generate an array of random bytes in the range 0 to 0xff of length `len`.
+  getRandomBytes(addr result[0], len)
+
+proc getRandomBytes*(len: int): seq[byte] =
+  ## Generate a seq of random bytes in the range 0 to 0xff of length `len`.
+  newSeq(result, len)
   getRandomBytes(addr result[0], len)
 
 proc getRandomString*(len: static[int]): string =
@@ -236,6 +251,43 @@ proc getRandomString*(len: int): string =
   var buff = newSeq[char](len)
   getRandomBytes(addr buff[0], len)
   result = encode(buff)
+
+when not defined(openbsd):
+  const RandomScale = (1.0 / (1.0 + float64(0xffffffff)))
+
+  from math import floor
+
+  proc randBiased(x: float32): bool =
+    var
+      xCopy = x
+      p: float64
+    while true:
+      p = float64(getRandom()) * RandomScale
+      if p >= xcopy:
+        return false
+
+      if (p + RandomScale) <= xcopy:
+        return true
+
+      xcopy = (xcopy - p) * (1.0 + RandomScale)
+
+  proc getRandom*(upperBound: uint32): uint32 =
+    ## Generate a random value in the range `0` to `upperBound`.
+    ##
+    ## The implementation on most platforms is derived from here: http://www.azillionmonkeys.com/qed/random.html
+    ##
+    ## On OpenBSD this simply calls `arc4random_uniform`.
+    let resolution: float64 = float64(upperBound) * RandomScale
+    var
+      x: float64 = resolution * float64(getRandom())
+      lo: int = int(floor(x))
+      xhi: float64 = x + resolution
+
+    while true:
+      inc(lo)
+      if float64(lo) >= xhi or randBiased((float64(lo) - x) / (xhi - x)):
+        return uint32(lo - 1)
+      x = float64(lo)
 
 when isMainModule:
   proc main() =
@@ -261,5 +313,9 @@ when isMainModule:
 
     let length = 32
     echo "\nRandom string with run time length: ", getRandomString(length)
+
+    echo "Getting 5 random numbers between 0 and 10"
+    for i in 0..9:
+      echo getRandom(10)
 
   main()

@@ -12,4 +12,4 @@ srcDir = "src"
 requires "nim >= 0.16.0"
 
 task docs, "Build documentation":
-  exec "nim doc --index:on -o:docs/sysrandom.html src/sysrandom.nim"
+  exec "nim doc2 --index:on -o:docs/sysrandom.html src/sysrandom.nim"
