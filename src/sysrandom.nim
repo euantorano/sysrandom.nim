@@ -288,34 +288,3 @@ when not defined(openbsd):
       if float64(lo) >= xhi or randBiased((float64(lo) - x) / (xhi - x)):
         return uint32(lo - 1)
       x = float64(lo)
-
-when isMainModule:
-  proc main() =
-    defer: closeRandom()
-
-    echo "Generating 5 random unisgned integers:"
-
-    for i in 0..4:
-      echo "Random unsigned int: ", getRandom()
-
-    var buffer = newSeq[byte](20)
-    getRandomBytes(addr buffer[0], len(buffer))
-
-    echo "\nFilled buffer with 20 random bytes: ", buffer
-
-    let randomBytes = getRandomBytes(5)
-    echo "\nGenerating 5 random bytes: ", repr(randomBytes)
-
-    echo "Generating 5 random 256 bit strings:"
-
-    for i in 0..4:
-      echo "Random string: ", getRandomString(32)
-
-    let length = 32
-    echo "\nRandom string with run time length: ", getRandomString(length)
-
-    echo "Getting 5 random numbers between 0 and 10"
-    for i in 0..9:
-      echo getRandom(10)
-
-  main()
