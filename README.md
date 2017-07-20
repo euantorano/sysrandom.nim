@@ -1,4 +1,4 @@
-# sysrandom.nim
+# sysrandom.nim [![CircleCI](https://circleci.com/gh/euantorano/sysrandom.nim.svg?style=svg)](https://circleci.com/gh/euantorano/sysrandom.nim)
 
 A simple library to generate random data, using the system's PRNG.
 
@@ -10,8 +10,18 @@ The following sources of randomness are used depending on platform:
 
 ## Installation
 
+`sysrandom` can be installed using Nimble:
+
 ```
 nimble install sysrandom
+```
+
+Or add the following to your .nimble file:
+
+```
+# Dependencies
+
+requires "sysrandom >= 1.1.0"
 ```
 
 ## [API Documentation](https://htmlpreview.github.io/?https://github.com/euantorano/sysrandom.nim/blob/master/docs/sysrandom.html)
